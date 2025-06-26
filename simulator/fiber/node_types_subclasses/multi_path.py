@@ -131,3 +131,79 @@ class FrequencySplitter(MultiPath):
                         * (1.0 / (1.0 + np.exp(k * (tmp_x - right_cutoff)))))
             new_states.append(ifft_(ifft_shift_(logistic) * fft_(state, propagator.dt), propagator.dt))
         return new_states
+
+
+@register_node_types_all
+class DualOutputMZM(MultiPath):
+    """ Dual-output Mach-Zehnder Modulator with complementary arms """
+    node_acronym = 'MZM'
+    number_of_parameters = 3  # depth, frequency, bias
+    node_lock = False
+
+    def __init__(self, **kwargs):
+        self.default_parameters = [1.0, 1.0e9, 0.0]
+
+        self.max_frequency = 50.0e9
+        self.min_frequency = 1.0e9
+        self.step_frequency = 1.0e9
+
+        self.upper_bounds = [2 * np.pi, 50.0e9, 2 * np.pi]
+        self.lower_bounds = [0.0, 1.0e9, 0.0]
+        self.data_types = ['float', 'float', 'float']
+        self.step_sizes = [None, 1e9, None]
+        self.parameter_imprecisions = [0.1, 10e6, 0.05]
+        self.parameter_units = [unit.rad, unit.Hz, unit.rad]
+        self.parameter_locks = [False, False, False]
+        self.parameter_names = ['depth', 'frequency', 'bias']
+        self.parameter_symbols = [r"$\phi_m$", r"$f_{RF}$", r"$\phi_{DC}$"]
+
+        self._loss_dB = -3.0  # 3dB splitting loss per arm
+        super().__init__(**kwargs)
+
+        return
+
+    def update_attributes(self, num_inputs, num_outputs):
+        # 输入端口强制校验
+        if num_inputs != 1:
+            # raise ValueError(f"{self.__class__.__name__} requires 1 input (got {num_inputs})")
+            print(f"Warning:{self.__class__.__name__} requires 1 input (got {num_inputs})")
+        # 输出端口强制设置为2
+        if num_outputs != 2:
+            print(f"Warning: Forcing {self.__class__.__name__} output to 2 (requested {num_outputs})")
+
+        # 更新关键属性
+        self.num_inputs = 1
+        self.num_outputs = 2
+        self.number_of_parameters = 3
+
+        if hasattr(super(), 'update_attributes'):
+            super().update_attributes(num_inputs, num_outputs)
+        else:
+            self.parameters = self.default_parameters.copy()
+    def propagate(self, states, propagator, num_inputs, num_outputs, save_transforms=False):
+        """
+        E_out1 = (E_in/2) * [1 + e^{j(φ_DC + φ_m cos(2πf t))}] * α
+        E_out2 = (E_in/2) * [1 - e^{j(φ_DC + φ_m cos(2πf t))}] * α
+        α = 10^(-loss_dB/20)  # 50% power loss
+        """
+        depth = self.parameters[0]
+        frequency = self.parameters[1]
+        bias = self.parameters[2]
+
+        # 调制相位项
+        phi = bias + depth * np.cos(2 * np.pi * frequency * propagator.t)
+        exp_jphi = np.exp(1j * phi)
+
+        # 互补输出计算
+        alpha = dB_to_amplitude_ratio(self._loss_dB)
+        out1 = (states[0] / 2) * (1 + exp_jphi) * alpha
+        out2 = (states[0] / 2) * (1 - exp_jphi) * alpha
+
+        if save_transforms: # save the power of each arm in time domain
+            self.transform = (
+                ('t', power_(out1), 'arm1'),
+                ('t', power_(out2), 'arm2')
+            )
+
+        return [out1, out2]
+

@@ -580,23 +580,69 @@ def save_hof(hof, io, type='full'):
 
 
 def plot_hof(hof, propagator, evaluator, io):
-    # save a figure which quickly demonstrates the results of the run as a .pdf files
-    fig, axs = plt.subplots(nrows=len(hof), ncols=3, figsize=[5, 2 * len(hof)])
+    # 获取所有sink节点名称并按数字排序
+    sink_nodes = sorted([k for k in evaluator.targets.keys() if k.startswith('sink')],
+                        key=lambda x: int(x[4:]))
+    num_sinks = len(sink_nodes)
+
+    # 动态计算子图列数 (拓扑图 + 各sink对比 + 分数注释)
+    ncols = 1 + num_sinks + 1
+
+    # 创建画布 (行数=hof数量，列数=动态计算)
+    fig, axs = plt.subplots(nrows=len(hof), ncols=ncols,
+                            figsize=(4 * ncols, 4 * len(hof)),
+                            squeeze=False)  # 确保axs始终是二维数组
+
+    # 扩展时域显示范围（显示完整时间轴）
+    t_ns = propagator.t * 1e9  # 转换为纳秒单位
+    xlim_full = [t_ns.min(), t_ns.max()]  # 完整时域范围
+
     for i, (score, graph) in enumerate(hof):
+        # 执行信号传播
         graph.score = score
         graph.propagate(propagator, save_transforms=False)
 
-        measurement_node = 'sink'
-        state = graph.measure_propagator(measurement_node)
-        if len(hof) == 1:
-            axs = np.expand_dims(axs, 0)
-
+        # 绘制拓扑图
         graph.draw(ax=axs[i, 0], debug=False)
-        axs[i, 1].plot(propagator.t, evaluator.target, label='Target')
-        axs[i, 1].plot(propagator.t, np.abs(state), label='Solution')
-        axs[i, 1].set(xlim=[0, 1e-9])
+        axs[i, 0].set_title(f"Topology #{i + 1}")
 
-        axs[i, 2].set(xticks=[], yticks=[])
-        axs[i, 2].grid = False
-        axs[i, 2].annotate("HoF{} | Score:\n{:2.3e}".format(i, score), xy=[0.5, 0.5], xycoords='axes fraction', va='center', ha='center')
-    io.save_fig(fig=fig, filename='halloffame.png')
+        # 绘制各sink波形对比
+        for col, sink in enumerate(sink_nodes, start=1):
+            # 获取目标信号和实际信号
+            target = evaluator.targets[sink]
+            measured = np.abs(graph.measure_propagator(sink))
+
+            # 绘制时域对比
+            axs[i, col].plot(t_ns, target, '--', label=f'Target {sink}')
+            axs[i, col].plot(t_ns, measured, '-', label=f'Measured {sink}')
+            axs[i, col].set(xlim=xlim_full,  # 显示完整时域
+                            xlabel='Time (ns)',
+                            ylabel='Amplitude',
+                            title=f'{sink} Comparison')
+            axs[i, col].legend(loc='upper right', fontsize=8)
+
+            # 添加性能指标注释
+            mse = np.mean((target - measured) ** 2)
+            axs[i, col].annotate(f"MSE: {mse:.2e}",
+                                 xy=(0.95, 0.95),
+                                 xycoords='axes fraction',
+                                 ha='right', va='top',
+                                 fontsize=8,
+                                 bbox=dict(facecolor='white', alpha=0.8))
+
+        # 分数注释列
+        note_col = 1 + num_sinks  # 最后一列
+        axs[i, note_col].axis('off')
+        axs[i, note_col].annotate(
+            f"HoF #{i + 1}\nScore: {score:.2e}\n"
+            f"Components: {len(graph.nodes)}\n"
+            f"Connections: {len(graph.edges)}",
+            xy=(0.5, 0.5), xycoords='axes fraction',
+            ha='center', va='center',
+            fontsize=10,
+            bbox=dict(facecolor='lavender', alpha=0.5)
+        )
+
+    plt.tight_layout(pad=3.0)
+    io.save_fig(fig=fig, filename='dynamic_hof.png')
+    plt.close(fig)
