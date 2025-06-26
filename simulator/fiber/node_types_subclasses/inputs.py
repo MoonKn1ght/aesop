@@ -44,8 +44,10 @@ class PulsedLaser(SourceModel):
         self.noise_model = AdditiveNoise(noise_param=self._FWHM_linewidth, noise_type='FWHM linewidth')
         return
 
-    def get_pulse_train(self, t, pulse_width, rep_t, peak_power, pulse_shape='gaussian'):
-        wrapped_t = np.sin(np.pi * t / rep_t)
+    def get_pulse_train(self, t, pulse_width, rep_t, peak_power, pulse_shape='gaussian', phase_shift=0):
+        # phase shift added
+        shifted_t = t - phase_shift * rep_t
+        wrapped_t = np.sin(np.pi * shifted_t / rep_t)
         unwrapped_t = np.arcsin(wrapped_t) * rep_t / np.pi
         pulse_width = pulse_width / (2 * np.sqrt(np.log(2)))
         if pulse_shape == 'gaussian':

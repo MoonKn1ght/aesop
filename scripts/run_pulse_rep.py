@@ -48,8 +48,8 @@ if __name__ == '__main__':
     io.save_machine_metadata(io.save_path)
 
     ga_opts = {'n_generations': 8,
-               'n_population': 40,
-               'n_hof': 25,
+               'n_population': 3,
+               'n_hof': 2,
                'verbose': options_cl.verbose,
                'num_cpus': psutil.cpu_count()-1}
 
