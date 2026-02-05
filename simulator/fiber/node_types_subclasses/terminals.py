@@ -54,6 +54,7 @@ class TerminalSink(NodeTypeParent):
         super().__init__(**kwargs)
         self.node_acronym = 'SNK'
         self._node_type = "sink node"
+        self.node_name = 'sink' #TODO
 
         self.node_lock = True
 

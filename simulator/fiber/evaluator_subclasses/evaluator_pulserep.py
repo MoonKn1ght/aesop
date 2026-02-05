@@ -138,7 +138,8 @@ class PulseRepetition_dual(Evaluator):
 
 
     def evaluate_graph(self, graph, propagator):
-        total_score = 0
+
+        # NOrmalized
         self.scores = {}
         state1=graph.measure_propagator('sink1')
         shifted1 = self.shift_function(state1,propagator,'sink1')
@@ -147,23 +148,81 @@ class PulseRepetition_dual(Evaluator):
         state2=graph.measure_propagator('sink2')
         score1 = self.waveform_temporal_similarity(state1, self.targets['sink1'], propagator, 'sink1', ref1)
         score2 = self.waveform_temporal_similarity(state2, self.targets['sink2'], propagator, 'sink2', ref2)
-        total_score = score1+ score2
+        total_score = score1 + score2
+        # total_score = score2
+        # total_score = score1
+        #print('score1:', score1,'; score2:',score2)
 
-
+        # No normalization
+        # total_score = 0
         # for node in self.evaluation_nodes:
         #     state = graph.measure_propagator(node)
         #     score = self.waveform_temporal_similarity(
-        #         state, self.targets[node], propagator,node,ref
+        #         state, self.targets[node], propagator,node
         #     )
         #     self.scores[node] = score
-        #     total_score += score  #
+        #     total_score += score
 
-        k = 10
-        total_score += k*(len(graph.nodes)+len(graph.edges))
+        # k = 10
+        # total_score += k*(len(graph.nodes)+len(graph.edges))
         return total_score
 
+    # def evaluate_graph(self, graph, propagator):
+    #     self.scores = {}
+    #     # 获取第一个通路移相后的输出和最大值
+    #     state1 = graph.measure_propagator(self.evaluation_nodes[0])
+    #     shifted1 = self.shift_function(state1, propagator, self.evaluation_nodes[0])
+    #     ref = np.max(np.abs(shifted1))  # 第一路最大幅度作为全局归一化参考
+    #     total_score = 0
+    #     for node in self.evaluation_nodes:
+    #         state = graph.measure_propagator(node)
+    #         score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref)
+    #         self.scores[node] = score
+    #         total_score += score
+    #     k = 0.005
+    #     total_score += k*(len(graph.nodes)+len(graph.edges))
+    #     return total_score
+
+###通道均一性考虑
+
+    def evaluate_graph(self, graph, propagator, alpha=0.1):
+        first_node = self.evaluation_nodes[0]
+        # 获取所有通道移相后波形、最大值
+        shifted = {}
+        maxvals = {}
+        # 计算第一通道
+        state1 = graph.measure_propagator(first_node)
+        shifted[first_node] = self.shift_function(state1, propagator, first_node)
+        ref = np.max(np.abs(shifted[first_node]))  # 第一通道最大值
+        total_score = 0
+        # 记录所有通路loss和最大值
+        for node in self.evaluation_nodes:
+            state = graph.measure_propagator(node)
+            shifted[node] = self.shift_function(state, propagator, node)
+            maxvals[node] = np.max(np.abs(shifted[node]))
+            score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref)
+            total_score += score
+        # 均一性loss
+        uniformity_loss = 0
+        for node in self.evaluation_nodes:
+            if node == first_node:
+                continue  # 跳过自己
+            uniformity_loss += abs(maxvals[node] / ref - 1)
+        # 合计总loss
+        total_score += alpha * uniformity_loss
+
+        k = 0.01
+        total_score += k * (len(graph.nodes) + len(graph.edges))
+
+        return total_score
+
+    # Original
+    # def waveform_temporal_similarity(self, state, target, propagator,node):
+    #     shifted = self.shift_function(state,propagator,node)
+    #     return np.sum((shifted - np.abs(target)) ** 2)
+
+    # Normalized
     def waveform_temporal_similarity(self, state, target, propagator,node,ref):
-        # TODO
         def normalize_signal(signal):
             return signal / ref if ref > 0 else signal
 
@@ -174,7 +233,8 @@ class PulseRepetition_dual(Evaluator):
         shifted = self.shift_function(state,propagator,node)
         shifted_normalized = normalize_signal(shifted)
         target_normalized = normalize_target(target)
-        return np.sum((shifted_normalized - np.abs(target_normalized)) ** 2)
+        #TODO: 要除以采样点数
+        return np.sum((shifted_normalized - np.abs(target_normalized)) ** 2)/propagator.n_samples
 
     def shift_function(self, state, propagator,node):
         # state_power = power_(state)
@@ -194,9 +254,10 @@ class PulseRepetition_dual(Evaluator):
         # plt.figure()
         # plt.plot(propagator.t, state_power, label='original', ls='-')
         # plt.plot(propagator.t, shifted, label='shifted', ls='--')
-        # plt.plot(propagator.t, power_(self.target), label='target original', ls=':')
+        # plt.plot(propagator.t, power_(self.targets[node]), label='target original', ls=':')
         # # plt.plot(propagator.t, shifted_target, label='target shifted', ls='-.')
         # plt.legend()
+        # plt.show()
         return shifted
 
 
@@ -228,24 +289,71 @@ class PulseRepetition_multi(Evaluator):
             if (self.target_harmonic_ind[node] >= self.target_f[node].shape[0]):
                 self.target_harmonic_ind[node] = self.target_f[node].shape[0]
 
+    # def evaluate_graph(self, graph, propagator):
+    #     self.scores = {}
+    #     state1=graph.measure_propagator('sink1')
+    #     shifted1 = self.shift_function(state1,propagator,'sink1')
+    #     ref1 = np.max(np.abs(self.targets['sink1']))
+    #     ref2 = np.max(np.abs(shifted1))
+    #     total_score = self.waveform_temporal_similarity(state1, self.targets['sink1'], propagator, 'sink1', ref2)
+    #     for node in self.evaluation_nodes[1:]:
+    #         state = graph.measure_propagator(node)
+    #         score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref2)
+    #         total_score += score
+    #     k = 50
+    #     total_score += 0.001*(len(graph.nodes)+len(graph.edges))
+    #     return total_score
 
-    def evaluate_graph(self, graph, propagator):
-        self.scores = {}
-        state1=graph.measure_propagator('sink1')
-        shifted1 = self.shift_function(state1,propagator,'sink1')
-        ref1 = np.max(np.abs(self.targets['sink1']))
-        ref2 = np.max(np.abs(shifted1))
-        total_score = self.waveform_temporal_similarity(state1, self.targets['sink1'], propagator, 'sink1', ref1)
-        for node in self.evaluation_nodes[1:]:
+    # def evaluate_graph(self, graph, propagator):
+    #     self.scores = {}
+    #     # 获取第一个通路移相后的输出和最大值
+    #     state1 = graph.measure_propagator(self.evaluation_nodes[0])
+    #     shifted1 = self.shift_function(state1, propagator, self.evaluation_nodes[0])
+    #     ref = np.max(np.abs(shifted1))  # 第一路最大幅度作为全局归一化参考
+    #     total_score = 0
+    #     for node in self.evaluation_nodes:
+    #         state = graph.measure_propagator(node)
+    #         score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref)
+    #         self.scores[node] = score
+    #         total_score += score
+    #     k = 0.005
+    #     total_score += k*(len(graph.nodes)+len(graph.edges))
+    #     return total_score
+
+###通道均一性考虑
+    def evaluate_graph(self, graph, propagator, alpha=0.01):
+        first_node = self.evaluation_nodes[0]
+        # 获取所有通道移相后波形、最大值
+        shifted = {}
+        maxvals = {}
+        # 计算第一通道
+        state1 = graph.measure_propagator(first_node)
+        shifted[first_node] = self.shift_function(state1, propagator, first_node)
+        ref = np.max(np.abs(shifted[first_node]))  # 第一通道最大值
+        total_score = 0
+        # 记录所有通路loss和最大值
+        for node in self.evaluation_nodes:
             state = graph.measure_propagator(node)
-            score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref2)
+            shifted[node] = self.shift_function(state, propagator, node)
+            maxvals[node] = np.max(np.abs(shifted[node]))
+            score = self.waveform_temporal_similarity(state, self.targets[node], propagator, node, ref)
             total_score += score
-        k = 50
+        # 均一性loss
+        uniformity_loss = 0
+        for node in self.evaluation_nodes:
+            if node == first_node:
+                continue  # 跳过自己
+            uniformity_loss += abs(maxvals[node] / ref - 1)
+        # 合计总loss
+        total_score += alpha * uniformity_loss
+
+        k = 0.003 #TODO: 器件成本系数
         total_score += k*(len(graph.nodes)+len(graph.edges))
+
         return total_score
 
+
     def waveform_temporal_similarity(self, state, target, propagator,node,ref):
-        # TODO
         def normalize_signal(signal):
             return signal / ref if ref > 0 else signal
 
@@ -256,7 +364,7 @@ class PulseRepetition_multi(Evaluator):
         shifted = self.shift_function(state,propagator,node)
         shifted_normalized = normalize_signal(shifted)
         target_normalized = normalize_target(target)
-        return np.sum((shifted_normalized - np.abs(target_normalized)) ** 2)
+        return np.sum((shifted_normalized - np.abs(target_normalized)) ** 2)/propagator.n_samples
 
     def shift_function(self, state, propagator,node):
         # state_power = power_(state)
@@ -273,11 +381,5 @@ class PulseRepetition_multi(Evaluator):
         state_rf *= np.exp(-1j * shift * scale_array_col)
         shifted = np.abs(np.fft.ifft(state_rf, axis=0))
 
-        # plt.figure()
-        # plt.plot(propagator.t, state_power, label='original', ls='-')
-        # plt.plot(propagator.t, shifted, label='shifted', ls='--')
-        # plt.plot(propagator.t, power_(self.target), label='target original', ls=':')
-        # # plt.plot(propagator.t, shifted_target, label='target shifted', ls='-.')
-        # plt.legend()
         return shifted
 

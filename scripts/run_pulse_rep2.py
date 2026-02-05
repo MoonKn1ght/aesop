@@ -36,7 +36,8 @@ from simulator.fiber.evaluator_subclasses.evaluator_pulserep import PulseRepetit
 from simulator.fiber.node_types_subclasses.inputs import PulsedLaser
 from simulator.fiber.node_types_subclasses.outputs import MeasurementDevice
 from simulator.fiber.node_types_subclasses.single_path import PhaseModulator,IntensityModulator
-from simulator.fiber.node_types_subclasses.multi_path import VariablePowerSplitter,DualOutputMZM
+from simulator.fiber.node_types_subclasses.multi_path import VariablePowerSplitter
+from simulator.fiber.node_types_subclasses.multi_path import DualOutputMZM
 
 from algorithms.topology_optimization import topology_optimization, save_hof, plot_hof
 
@@ -50,7 +51,7 @@ if __name__ == '__main__':
     io.init_save_dir(sub_path=None, unique_id=True)
     io.save_machine_metadata(io.save_path)
 
-    ga_opts = {'n_generations': 3,
+    ga_opts = {'n_generations': 10,
                'n_population': 1,
                'n_hof': 1,
                'verbose': options_cl.verbose,
@@ -80,7 +81,7 @@ if __name__ == '__main__':
     # evaluator = PulseRepetition(propagator, target, pulse_width=pulse_width, rep_t=rep_t, peak_power=peak_power)
     evaluator = PulseRepetition_dual(propagator,
                                      targets={'sink1': np.array(target1),
-                                            'sink2': np.array(target2)  # ?????numpy??
+                                            'sink2': np.array(target2)
                                             },
                                      pulse_width=pulse_width, rep_t=rep_t, peak_power=peak_power)
 
@@ -90,22 +91,33 @@ if __name__ == '__main__':
     md = MeasurementDevice()
     md.protected = True
 
+    # nodes = {'source': TerminalSource(),
+    #          0: VariablePowerSplitter(),
+    #          1: VariablePowerSplitter(),
+    #          'sink1': TerminalSink(node_name='sink1'),
+    #          'sink2': TerminalSink(node_name='sink2')}
+    # edges = {('source', 0): input_laser,
+    #          (0,1): IntensityModulator(),
+    #          (1, 'sink1'): md,
+    #          (0, 'sink2'): md
+    #          }
+
     nodes = {'source': TerminalSource(),
-             0: VariablePowerSplitter(),
-             1: VariablePowerSplitter(),
+             0: DualOutputMZM(),
              'sink1': TerminalSink(node_name='sink1'),
              'sink2': TerminalSink(node_name='sink2')}
     edges = {('source', 0): input_laser,
-             (0,1): IntensityModulator(),
-             (1, 'sink1'): md,
+             (0, 'sink1'): md,
              (0, 'sink2'): md
              }
+
     graph = Graph.init_graph(nodes=nodes, edges=edges)
     update_rule = 'tournament'
 
     hof, log = topology_optimization(copy.deepcopy(graph), propagator, evaluator, evolver, io,
                                      ga_opts=ga_opts, local_mode=False, update_rule=update_rule,
-                                     parameter_opt_method='ADAM+GA',
+                                     parameter_opt_method='L-BFGS',
+                                     # parameter_opt_method='ADAM+GA',
                                      include_dashboard=False, crossover_maker=None,
                                      ged_threshold_value=0.8)
 

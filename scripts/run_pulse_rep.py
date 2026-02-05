@@ -33,7 +33,7 @@ from simulator.fiber.evaluator_subclasses.evaluator_pulserep import PulseRepetit
 from simulator.fiber.node_types_subclasses.inputs import PulsedLaser
 from simulator.fiber.node_types_subclasses.outputs import MeasurementDevice
 from simulator.fiber.node_types_subclasses.single_path import PhaseModulator
-from simulator.fiber.node_types_subclasses.multi_path import VariablePowerSplitter
+from simulator.fiber.node_types_subclasses.multi_path import VariablePowerSplitter, DualOutputMZM
 
 from algorithms.topology_optimization import topology_optimization, save_hof, plot_hof
 
@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     propagator = Propagator(window_t=4e-9, n_samples=2**15, central_wl=1.55e-6)
     pulse_width, rep_t, peak_power = (3e-12, 1/10.0e9, 1.0)
-    p, q = (1, 2)
+    p, q = (2, 1)
 
     input_laser = PulsedLaser(parameters_from_name={'pulse_width': pulse_width, 'peak_power': peak_power,
                                                     't_rep': rep_t, 'pulse_shape': 'gaussian',
@@ -75,15 +75,19 @@ if __name__ == '__main__':
 
     nodes = {'source': TerminalSource(),
              0: VariablePowerSplitter(),
+             1: VariablePowerSplitter(),
              'sink': TerminalSink()}
     edges = {('source', 0): input_laser,
-             (0, 'sink'): md,
+             (0,1,0): PhaseModulator(),
+             (0,1,1): PhaseModulator(),
+             (1, 'sink'): md,
              }
     graph = Graph.init_graph(nodes=nodes, edges=edges)
 
     update_rule = 'tournament'
     hof, log = topology_optimization(copy.deepcopy(graph), propagator, evaluator, evolver, io,
                                      ga_opts=ga_opts, local_mode=False, update_rule=update_rule,
+                                     # parameter_opt_method='L-BFGS',
                                      parameter_opt_method='L-BFGS+GA',
                                      include_dashboard=False, crossover_maker=None,
                                      ged_threshold_value=0.8)

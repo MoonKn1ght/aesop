@@ -8,6 +8,7 @@ import copy
 import ray
 import random
 import pathlib
+import scipy.optimize
 from autograd.numpy.numpy_boxes import ArrayBox
 
 import networkx as nx
@@ -76,11 +77,12 @@ def topology_optimization(graph, propagator, evaluator, evolver, io,
     # create initial population and hof
     hof = init_hof(ga_opts['n_hof'])
     population = []
-    score, graph = parameters_optimize_complete((None, graph), evaluator, propagator, method=parameter_opt_method)
+    score, graph = parameters_optimize_complete((None, graph), evaluator, propagator, method=parameter_opt_method)  # core progress of parameter optimization
     graph.score = score
+    plot_graph(graph,propagator, evaluator, io)
+
     for individual in range(ga_opts['n_population']):
         population.append((score, copy.deepcopy(graph)))
-
     # do we want to save a reduced file of each graph throughout optimization?
     if save_all_minimal_graph_data:
         io.join_to_save_path("reduced_graphs").mkdir(parents=True, exist_ok=True)
@@ -550,7 +552,7 @@ def parameters_optimize_complete(ind, evaluator, propagator, method='', verbose=
         if len(x0) == 0:
             return graph.func(x0), graph
         graph, parameters, score, log = parameters_optimize(graph, x0=x0, method=method, verbose=verbose)
-
+        # TODO: RuntimeWarning: overflow encountered in true_divide
         graph.scaled_hess_matrix = graph.hess(parameters)  # we calculate this here as it takes a long time - shouldn't calculate again
 
         # if there are any ArrayBoxes (autgrad tracers) in the Graph object, it cannot save (recursion depth error)
@@ -562,7 +564,6 @@ def parameters_optimize_complete(ind, evaluator, propagator, method='', verbose=
         print(f'error caught in parameter optimization: {e}')
         raise e
         return 99999999, graph
-
 
 @ray.remote
 def parameters_optimize_multiprocess(ind, evaluator, propagator, method='NULL', verbose=True):
@@ -605,6 +606,8 @@ def plot_hof(hof, propagator, evaluator, io):
         # 绘制拓扑图
         graph.draw(ax=axs[i, 0], debug=False)
         axs[i, 0].set_title(f"Topology #{i + 1}")
+        #TODO: show the graph
+        # graph.show()
 
         # 绘制各sink波形对比
         for col, sink in enumerate(sink_nodes, start=1):
@@ -642,7 +645,94 @@ def plot_hof(hof, propagator, evaluator, io):
             fontsize=10,
             bbox=dict(facecolor='lavender', alpha=0.5)
         )
-
+    plt.show()
     plt.tight_layout(pad=3.0)
     io.save_fig(fig=fig, filename='dynamic_hof.png')
+    plt.close(fig)
+
+
+def plot_graph(graph, propagator, evaluator, io):
+    if not hasattr(evaluator, 'targets'):
+        sink = 'sink'
+        target = evaluator.target
+        measured = np.abs(graph.measure_propagator(sink))
+
+        fig, axs = plt.subplots(nrows=1, ncols=2,
+                                figsize=(4 * 2, 4),
+                                squeeze=False)  # 确保axs始终是二维数组
+
+        # 扩展时域显示范围（显示完整时间轴）
+        t_ns = propagator.t * 1e9  # 转换为纳秒单位
+        xlim_full = [t_ns.min(), t_ns.max()]  # 完整时域范围
+
+        graph.propagate(propagator, save_transforms=False)
+
+        # 绘制拓扑图
+        graph.draw(ax=axs[0, 0], debug=False)
+        axs[0, 0].set_title(f"Topology")
+
+        # 绘制时域对比
+        axs[0, 1].plot(t_ns, target, '--', label=f'Target {sink}')
+        axs[0, 1].plot(t_ns, measured, '-', label=f'Measured {sink}')
+        axs[0, 1].set(xlim=xlim_full,  # 显示完整时域
+                        xlabel='Time (ns)',
+                        ylabel='Amplitude',
+                        title=f'{sink} Comparison')
+        axs[0, 1].legend(loc='upper right', fontsize=8)
+
+        # 添加性能指标注释
+        mse = np.mean((target - measured) ** 2)
+        axs[0, 1].annotate(f"MSE: {mse:.2e}",
+                             xy=(0.95, 0.95),
+                             xycoords='axes fraction',
+                             ha='right', va='top',
+                             fontsize=8,
+                             bbox=dict(facecolor='white', alpha=0.8))
+
+    else:
+        sink_nodes = sorted([k for k in evaluator.targets.keys() if k.startswith('sink')],
+                        key=lambda x: int(x[4:]))
+        num_sinks = len(sink_nodes)
+        ncols = 1 + num_sinks
+
+        fig, axs = plt.subplots(nrows=1, ncols=ncols,
+                                figsize=(4 * ncols, 4 ),
+                                squeeze=False)  # 确保axs始终是二维数组
+
+        # 扩展时域显示范围（显示完整时间轴）
+        t_ns = propagator.t * 1e9  # 转换为纳秒单位
+        xlim_full = [t_ns.min(), t_ns.max()]  # 完整时域范围
+
+        graph.propagate(propagator, save_transforms=False)
+
+        # 绘制拓扑图
+        graph.draw(ax=axs[0, 0], debug=False)
+        axs[0, 0].set_title(f"Topology")
+
+        # 绘制各sink波形对比
+        for col, sink in enumerate(sink_nodes, start=1):
+            # 获取目标信号和实际信号
+            target = evaluator.targets[sink]
+            measured = np.abs(graph.measure_propagator(sink))
+
+            # 绘制时域对比
+            axs[0, col].plot(t_ns, target, '--', label=f'Target {sink}')
+            axs[0, col].plot(t_ns, measured, '-', label=f'Measured {sink}')
+            axs[0, col].set(xlim=xlim_full,  # 显示完整时域
+                            xlabel='Time (ns)',
+                            ylabel='Amplitude (a.u)',
+                            title=f'{sink} Comparison')
+            axs[0, col].legend(loc='upper right', fontsize=8)
+
+            # 添加性能指标注释
+            mse = np.mean((target - measured) ** 2)
+            axs[0, col].annotate(f"MSE: {mse:.2e}",
+                                 xy=(0.95, 0.95),
+                                 xycoords='axes fraction',
+                                 ha='right', va='top',
+                                 fontsize=8,
+                                 bbox=dict(facecolor='white', alpha=0.8))
+    plt.show()
+    plt.tight_layout(pad=3.0)
+    io.save_fig(fig=fig, filename='current_graph.png')
     plt.close(fig)

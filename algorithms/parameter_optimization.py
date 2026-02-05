@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import itertools
 import autograd
-
+import matplotlib.pyplot as plt
 """
 """
 LOG = []
@@ -54,11 +54,80 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
         if log_callback:
             logger.set_optimization_algorithm('L-BFGS')
             logger.start_logger_time()
-        
-        res = scipy.optimize.minimize(fitness_funct, x0, method='L-BFGS-B',
-                                      bounds=list(zip(lower_bounds, upper_bounds)),
-                                      options={'disp': verbose, 'maxiter': 500},
-                                      jac=graph.grad)
+
+        # TODO: 添加扰动，选取最优解
+        # best_cost = 10000
+        # best_scores = []
+        # N = 4000
+        # for i in range(N):  # 随机重启
+        #     print('*** Generation:',i,'***')
+        #     if i > 0:
+        #         perturbed_x = x0 * (1 + np.random.normal(0, 0.2, len(x0)))
+        #         perturbed_x = np.clip(perturbed_x, lower_bounds, upper_bounds)
+        #     else:
+        #         perturbed_x = x0
+        #
+        #     res = scipy.optimize.minimize(fitness_funct, perturbed_x, method='L-BFGS-B',
+        #                                   bounds=list(zip(lower_bounds, upper_bounds)),
+        #                                   options={'disp': verbose, 'maxiter': 500,
+        #                                            'gtol': 1e-6,
+        #                                            'ftol': 1e-8,
+        #                                            'maxcor': 20,
+        #                                            'maxls': 60,
+        #                                            'eps': 1e-6
+        #                                            },
+        #                                   # tol = 1e-8,
+        #                                   jac=graph.grad)
+        #
+        #     if graph.func(res.x) < best_cost:
+        #         best_cost = graph.func(res.x)
+        #         best_x = res.x
+        #
+        #     best_scores.append(best_cost)
+        #     print('Generation:',i,'; best score:',best_cost)
+        #
+        # # draw the evolution curve
+        # plt.figure(figsize=(12, 6))
+        # plt.subplot(1, 1, 1)
+        # generations = np.arange(0, N)
+        # plt.plot(generations, best_scores, 'b-', label='best score')
+        # plt.xlabel('Generation')
+        # plt.ylabel('Score')
+        # plt.title('L-BFGS optimization curve')
+        # plt.legend()
+        # plt.grid(True)
+        # plt.show()
+        #
+        # x = best_x
+        # print('The best score is:', graph.func(x))
+
+        # Original
+        # res = scipy.optimize.minimize(fitness_funct, x0, method='L-BFGS-B',
+        #                               bounds=list(zip(lower_bounds, upper_bounds)),
+        #                               options={'disp': verbose, 'maxiter': 500,
+        #                                        'gtol': 1e-6,
+        #                                        'ftol': 1e-8,
+        #                                        'maxcor': 20,
+        #                                        'maxls': 60,
+        #                                        'eps': 1e-6
+        #                                        },
+        #                               # tol = 1e-8,
+        #                               jac=graph.grad)
+
+        res = scipy.optimize.minimize(
+            fitness_funct, x0, method='L-BFGS-B',
+            bounds=list(zip(lower_bounds, upper_bounds)),
+            options={
+                'disp': verbose,
+                'maxiter': 1000,  # 或更高
+                'gtol': 1e-9,
+                'ftol': 1e-12,
+                'maxcor': 20,
+                'maxls': 60,
+                'eps': 1e-8
+            }
+        )
+
         graph.distribute_parameters_from_list(res.x, models, parameter_index)
         x = res.x
 
@@ -98,14 +167,16 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
         if verbose: print("Parameter optimization: GA + L-BFGS algorithm")
 
         # population_size = 20
-        population_size = kwargs.get("population_size", 20)
+        population_size = kwargs.get("population_size", 10)
         # n_generations = 15
-        n_generations = kwargs.get("n_generations", 15)
+        n_generations = kwargs.get("n_generations", 10)
 
         if log_callback:
             logger.set_optimization_algorithm('GA', pop_size=population_size)
             logger.start_logger_time()
 
+        # TODO: diversify the initial population
+        # x1 = [graph.sample_parameters_to_list() for _ in range(population_size)]
         x, score = parameters_genetic_algorithm(graph.func, x0, graph.sample_parameters_to_list,
                                                 logger=(logger if log_callback else None),
                                                 n_generations=n_generations, n_population=population_size, rate_mut=0.8,
@@ -114,11 +185,12 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
         if log_callback:
             logger.set_optimization_algorithm('L-BFGS')
 
-        maxiter = kwargs.get("maxiter", 50)
+        maxiter = kwargs.get("maxiter", 1000)
 
         res = scipy.optimize.minimize(fitness_funct, x, method='L-BFGS-B',
                                       bounds=list(zip(lower_bounds, upper_bounds)),
-                                      options={'disp': verbose, 'maxiter': maxiter},
+                                      options={'disp': verbose, 'maxiter': maxiter,
+                                               },
                                       jac=graph.grad)
 
 
@@ -213,13 +285,15 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
     if method == 'ADAM+GA':
         if verbose: print("Parameter optimization: GA + ADAM algorithm")
 
-        population_size = 15 
+        population_size = 20
 
         if log_callback:
             logger.set_optimization_algorithm('GA', pop_size=population_size)
             logger.start_logger_time()
 
-        x, score = parameters_genetic_algorithm(graph.func, x0, graph.sample_parameters_to_list, \
+        # TODO: diversify the initial population
+        x1 = [graph.sample_parameters_to_list() for _ in range(population_size)]
+        x, score = parameters_genetic_algorithm(graph.func, x1, graph.sample_parameters_to_list, \
                                                 logger=(logger if log_callback else None), n_generations=20, \
                                                 n_population=population_size, rate_mut=0.9,
                                                 rate_crx=0.9, verbose=verbose)
@@ -232,6 +306,8 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
                                           num_iters=150, step_size=0.001, b1=0.9, b2=0.999,
                                           eps=10 ** -8, m=None, v=None, verbose=verbose)
 
+        # TODO: obtain the score after ADAM
+        # print(f'The score after ADAM is: {graph.func(x)}')
         graph.distribute_parameters_from_list(x, models, parameter_index)
 
         return graph, x, graph.func(x), logger
@@ -310,6 +386,7 @@ def adam_bounded(lower_bounds, upper_bounds, grad, x, convergence_check_period=N
                 x = np.clip(x, a_min=lower_bounds, a_max=upper_bounds)
                 return x, i, m, v
 
+
         x = np.clip(x, a_min=lower_bounds, a_max=upper_bounds)
 
     return x, num_iters, m, v
@@ -318,29 +395,33 @@ def adam_bounded(lower_bounds, upper_bounds, grad, x, convergence_check_period=N
 def parameters_genetic_algorithm(func, x0, generate_random_func, logger=None, n_generations=25,
                                  n_population=25, rate_mut=0.9, rate_crx=0.9, verbose=False):
     # hyper-parameters, will later be added as function arguments to change dynamically
-    crossover = crossover_singlepoint
+    # crossover = crossover_singlepoint
+    crossover = crossover_doublepoint
+    # crossover = sbx_crossover
     mutation_operator = 'uniform'
     mut_kwargs = {}
     log, log_metrics = logbook_initialize()
     new_individuals_divisor = 20
 
     # create initial population
+    best_scores = []
     population = []
-    for individual in range(n_population):
+    for individual in range(n_population):  # create initial population
         score = func(x0)
         population.append((score, x0))
-
+    best_scores.append(population[0][0])    # record the initial state
     # loop through generations, applying evolution operators
     for generation in range(1, n_generations + 1):
         # *** here we evolve the population ***
+
         # we cross-over and mutate
         for child_i in range(np.floor(rate_crx * n_population).astype('int')):
             parent1, parent2 = [parent for (score, parent) in tuple(random.sample(population, 2))]
             children = crossover(parent1, parent2)
             for child in children:
-                #     if np.random.rand() < rate_mut:
-                #         mutant = graph.sample_parameters_to_list()  # this is a completely random individual which we can use
-                #         child = mutation(child, mutant)
+                # if np.random.rand() < rate_mut:
+                #     mutant = generate_random_func()  # this is a completely random individual which we can use
+                #     child = mutation(child, mutant)
                 population.append((None, child))
         for child_i in range(np.floor(rate_mut * n_population).astype('int')):
             parent = [parent for (score, parent) in tuple(random.sample(population, 1))][0]
@@ -363,13 +444,27 @@ def parameters_genetic_algorithm(func, x0, generate_random_func, logger=None, n_
 
         # sort the population, and remove the worst performing individuals to keep population size consistent
         population.sort(reverse=False)
-        population = population[
+        population = population[    # break point
                      :-(len(population) - n_population) or None]  # remove last N worst performing individuals
+        best_score = population[0][0]
+        best_scores.append(best_score)
         if verbose: print(f'Parameter optimization, genetic algorithm: '
                           f'generation {generation}/{n_generations}, best score {population[0][0]}')
         if logger is not None:
             for score, _ in population:
                 logger.log_score(score)
+
+    # draw the evolution curve
+    plt.figure(figsize = (12,6))
+    plt.subplot(1,1,1)
+    generations = np.arange(0, n_generations+1)
+    plt.plot(generations, best_scores, 'b-', label='best score')
+    plt.xlabel('Generation')
+    plt.ylabel('Score')
+    plt.title('GA Evolution curve')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
     return population[0][1], population[0][0]
 
@@ -391,6 +486,36 @@ def crossover_doublepoint(parent1, parent2, **kwargs):
     child2 = copy.deepcopy(parent2[:crx_point1] + parent1[crx_point1:crx_point2] + parent2[crx_point2:])
     return child1, child2
 
+#
+# def crossover_doublepoint(parent1, parent2, **kwargs):
+#     # 确保 parent1 的长度至少为 3
+#     if len(parent1) < 3:
+#         raise ValueError("parent1 must have a length greater than or equal to 3")
+#
+#     # 生成两个交叉点，确保长度足够大
+#     crx_points = tuple(np.random.randint(2, len(parent1), 2))
+#     crx_point1, crx_point2 = min(crx_points), max(crx_points)
+#
+#     # 生成子代
+#     child1 = copy.deepcopy(parent1[:crx_point1] + parent2[crx_point1:crx_point2] + parent1[crx_point2:])
+#     child2 = copy.deepcopy(parent2[:crx_point1] + parent1[crx_point1:crx_point2] + parent2[crx_point2:])
+#
+#     return child1, child2
+
+
+def sbx_crossover(parent1, parent2, eta=10):
+    child1, child2 = [], []
+    for i in range(len(parent1)):
+        u = np.random.rand()
+        if u <= 0.5:
+            beta = (2*u) ** (1/(eta+1))
+        else:
+            beta = (1/(2*(1-u))) ** (1/(eta+1))
+        child1.append(0.5*((1+beta)*parent1[i] + (1-beta)*parent2[i]))
+        child2.append(0.5*((1-beta)*parent1[i] + (1+beta)*parent2[i]))
+    return child1, child2
+
+
 
 def mutation(parent, mutant):
     """ mutation evolution operator """
@@ -404,3 +529,5 @@ def mutation(parent, mutant):
     child = [mut if i in inds else par for i, (par, mut) in enumerate(zip(parent, mutant))]
 
     return child
+
+

@@ -530,9 +530,9 @@ class Graph(GraphParent):
         for attribute in attributes:
             model_attributes[attribute] = []
         if get_location_indices:
-            model_attributes['models'], model_attributes['parameter_index'] = [], []
+            model_attributes['models'], model_attributes['parameter_index'] = [], []    # 组件对象和参数在组件中的位置
         if get_node_edge_index:
-            model_attributes['node_edge_index'] = []
+            model_attributes['node_edge_index'] = []    # 组件在图中的位置
             # these will help translate from a list of parameters/parameter info to a graph structure
 
         models = self.get_models(include_node_edge=get_node_edge_index)
@@ -540,7 +540,7 @@ class Graph(GraphParent):
             if not model[0].node_lock:
                 for i, lock in enumerate(model[0].parameter_locks):
                     if not lock:
-                        for attribute in attributes:
+                        for attribute in attributes:    # 提取属性
                             model_attributes[attribute].append(getattr(model[0], attribute)[i])
                         if get_location_indices:
                             model_attributes['models'].append(model[0])
