@@ -131,3 +131,98 @@ class FrequencySplitter(MultiPath):
                         * (1.0 / (1.0 + np.exp(k * (tmp_x - right_cutoff)))))
             new_states.append(ifft_(ifft_shift_(logistic) * fft_(state, propagator.dt), propagator.dt))
         return new_states
+
+@register_node_types_all
+class MZM2x2Node(MultiPath):
+    """
+    2x2 马赫-曾德尔调制器 (MZM) 节点模型
+    参数:
+    - v_pi: 半波电压 (V)
+    - v_bias: 偏置电压 (V)
+    - insertion_loss: 插入损耗 (0.0 - 1.0)
+    """
+    node_acronym = 'MZM'
+    node_lock = False
+    number_of_parameters = 3
+
+    def __init__(self, **kwargs):
+        self.node_lock = False
+
+        # 1. 先定义参数数量
+        self.number_of_parameters = 3
+
+        # 2. 定义所有必要的属性列表 (GA 算法严重依赖这些！)
+        self.parameter_names = ['v_pi', 'v_bias', 'insertion_loss']
+        self.default_parameters = [3.5, 1.75, 0.1]
+        self.upper_bounds = [10.0, 10.0, 1.0]
+        self.lower_bounds = [1.0, -10.0, 0.0]
+        self.data_types = ['float', 'float', 'float']
+
+        # 【关键点】这就是报错缺少的属性
+        # None 表示使用默认步长，或者你可以填具体的数值比如 [0.1, 0.1, 0.01]
+        self.step_sizes = [None, None, None]
+
+        self.parameter_imprecisions = [0.01, 0.01, 0.001]
+        self.parameter_units = ['V', 'V', 'dB']
+        self.parameter_locks = [False, False, False]
+        self.parameter_symbols = [r"$V_{\pi}$", r"$V_{bias}$", r"$IL$"]
+
+        # 3. 最后调用父类初始化
+        super().__init__(**kwargs)
+
+        # 4. 定义端口范围
+        self._range_input_edges = [1, 2]
+        self._range_output_edges = [1, 2]
+
+    def update_attributes(self, num_inputs, num_outputs):
+        """
+        双重保险：确保在图构建完成后，这些属性依然存在。
+        """
+        self.number_of_parameters = 3
+
+        # 强制检查并重新赋值 step_sizes，防止丢失
+        if not hasattr(self, 'step_sizes') or len(self.step_sizes) != 3:
+            self.step_sizes = [None, None, None]
+
+        # 检查 parameters 是否存在
+        if not hasattr(self, 'parameters') or len(self.parameters) != 3:
+            self.parameters = self.default_parameters
+
+        # 其他属性如果怕丢，也可以在这里补，但通常 step_sizes 是重灾区
+        return
+
+    def propagate(self, states, propagator, num_inputs, num_outputs, save_transforms=False):
+        """
+        时域/频域信号传播逻辑
+        states: 输入光场列表 [E_in1, E_in2]
+        """
+        # 提取当前优化后的参数
+        v_pi, v_bias, loss = self.parameters
+
+        # 计算相位偏移 theta
+        # 物理公式: phi = pi * (V_bias / V_pi) / 2
+        phi = (np.pi * v_bias) / (2.0 * v_pi)
+
+        # 构建 2x2 传输矩阵 S
+        # S = [[cos(phi), -j*sin(phi)], [-j*sin(phi), cos(phi)]]
+        S = np.array([
+            [np.cos(phi), -1j * np.sin(phi)],
+            [-1j * np.sin(phi), np.cos(phi)]
+        ])
+
+        # 处理输入状态 (确保输入是 2xN 矩阵)
+        # 如果只有一个输入，则另一个输入补零
+        if len(states) == 1:
+            states_tmp = np.stack([states[0], np.zeros_like(states[0])], axis=1)
+        else:
+            states_tmp = np.stack(states, axis=1)  # shape: (n_samples, 2, ...)
+
+        # 应用传输矩阵和损耗
+        # 使用 np.matmul 进行矩阵相乘以支持自动微分
+        states_scattered = np.matmul(S, states_tmp) * (1.0 - loss)
+
+        # 将结果转回状态列表返回
+        # states_scattered 的 shape 通常是 (2, n_samples) 后的切片
+        output_states = [states_scattered[:, i, :] for i in range(states_scattered.shape[1])]
+
+        return output_states

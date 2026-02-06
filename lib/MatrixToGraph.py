@@ -1,5 +1,6 @@
 import numpy as np
 from lib.graph import Graph
+from lib.base_classes import NodeType
 
 # ==========================================
 # 1. 导入组件 (与您的参考代码保持一致)
@@ -17,7 +18,56 @@ from simulator.fiber.node_types_subclasses.multi_path import MZM2x2Node
 from simulator.fiber.node_types_subclasses.single_path import Waveguide
 
 
-def convert_matrix_to_aesop_graph(A, N_MZM, N_DET):
+class BroadcastSource(NodeType):
+    """
+    自定义的广播源节点。
+    功能：将输入信号（或初始种子信号）复制 N 份，发送给所有连接的下游边。
+    解决 TerminalSource 无法应对 1-to-N 连接导致的 IndexError。
+    """
+    node_acronym = 'SRC'
+    node_lock = True
+
+    def __init__(self, **kwargs):
+        # 1. 定义所有必要的属性列表（防崩溃）
+        self.number_of_parameters = 0
+        self.default_parameters = []
+        self.parameter_names = []
+        self.lower_bounds = []
+        self.upper_bounds = []
+        self.data_types = []
+        self.step_sizes = []
+        self.parameter_imprecisions = []
+        self.parameter_units = []
+        self.parameter_locks = []
+        self.parameter_symbols = []
+
+        super().__init__(**kwargs)
+
+    # ====================================================
+    # 【新增修复】必须实现 update_attributes 方法
+    # ====================================================
+    def update_attributes(self, num_inputs, num_outputs):
+        """
+        AESOP 要求每个节点必须响应连接数的变化。
+        对于广播源，虽然不需要增加参数，但必须有这个接口来防止报错。
+        """
+        self.number_of_parameters = 0
+        return
+
+    def propagate(self, input_states, propagator, n_in, n_out, save_transforms=False):
+        # 广播逻辑：把唯一的输入信号复制 n_out 份
+        # input_states[0] 通常是 Laser 传进来的光场
+        if len(input_states) > 0:
+            source_signal = input_states[0]
+            return [source_signal] * n_out
+        else:
+            # 防御性编程：如果没有输入（极少见），返回全0信号
+            import autograd.numpy as np
+            zero_signal = np.zeros(propagator.n_samples, dtype=complex)
+            return [zero_signal] * n_out
+
+
+def convert_matrix_to_graph(A, N_MZM, N_DET):
     """
     将邻接矩阵转换为 AESOP 的 Graph 对象。
     风格：Source/Sink 作为 Terminal 节点，Laser/MeasurementDevice 作为 Edge。
@@ -60,8 +110,8 @@ def convert_matrix_to_aesop_graph(A, N_MZM, N_DET):
     # ==========================================
     for i in range(n_nodes):
         if i == 0:
-            # 节点 0: TerminalSource (只是一个端点，不产生信号)
-            nodes[i] = TerminalSource()
+            # 节点 0: BroadcastSource
+            nodes[i] = BroadcastSource()
             nodes[i].node_acronym = 'SRC'
 
         elif 1 <= i <= N_MZM:
