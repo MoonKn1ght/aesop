@@ -40,7 +40,7 @@ if __name__ == '__main__':
     N_DET = 4
 
     # 物理参数
-    p, q = (2, 1) # 2倍频
+    p, q = (4, 1) # 2倍频
     pulse_width, rep_t, peak_power = (3e-12, 1/10.0e9, 1.0)
     propagator = Propagator(window_t=4e-9, n_samples=2**15, central_wl=1.55e-6)
 
@@ -53,17 +53,29 @@ if __name__ == '__main__':
     input_laser.node_lock = True
     input_laser.protected = True
 
-    # 定义目标信号 (Target)
-    target_signal = input_laser.get_pulse_train(
-        propagator.t,
-        pulse_width=pulse_width * (p / q),
-        rep_t=rep_t * (p / q),
-        peak_power=peak_power * (p / q)
-    )
+    targets = {}
+    n = int(p / q)
 
-    # 初始化评估器
-    evaluator = PulseRepetition_multi(propagator, target_signal, pulse_width=pulse_width, rep_t=rep_t, peak_power=peak_power)
+    # TODO: targets incorrect
+    targets['sink1'] = input_laser.get_pulse_train(propagator.t, pulse_width=pulse_width,
+                                                   rep_t=rep_t * (p / q),
+                                                   peak_power=peak_power * 1.0, phase_shift=0)
+    targets['sink2'] = input_laser.get_pulse_train(propagator.t, pulse_width=pulse_width,
+                                                   rep_t=rep_t * (p / q),
+                                                   peak_power=peak_power * 1.0, phase_shift=1 / 2)
+    targets['sink3'] = input_laser.get_pulse_train(propagator.t, pulse_width=pulse_width,
+                                                   rep_t=rep_t * (p / q),
+                                                   peak_power=peak_power * 1.0, phase_shift=1 / 4)
+    targets['sink4'] = input_laser.get_pulse_train(propagator.t, pulse_width=pulse_width,
+                                                   rep_t=rep_t * (p / q),
+                                                   peak_power=peak_power * 1.0, phase_shift=3 / 4)
 
+    evaluation_nodes = list(targets.keys())
+    # evaluator = PulseRepetition(propagator, target, pulse_width=pulse_width, rep_t=rep_t, peak_power=peak_power)
+    evaluator = PulseRepetition_multi(propagator,
+                                      targets=targets,
+                                      pulse_width=pulse_width, rep_t=rep_t, peak_power=peak_power,
+                                      evaluation_nodes=evaluation_nodes)
     # ==========================================
     # 2. 循环采样与优化 (The Loop)
     # ==========================================
