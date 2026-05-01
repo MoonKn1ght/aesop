@@ -176,21 +176,53 @@ def parameters_optimize(graph, x0=None, method='L-BFGS', verbose=False, log_call
 
         return graph, xopt, fopt, logger
 
+
     elif method == 'CMA':
+
         if verbose: print("Parameter optimization: CMA algorithm")
 
+        # 【新增】：从外部 kwargs 获取参数，如果没有传，则使用默认值
+
+        max_evals = kwargs.get("maxfevals", 1000)
+
+        pop_size = kwargs.get("popsize", None)  # CMA 默认会自动推断合适的种群大小，但允许手动覆盖
+
+        init_sigma = kwargs.get("sigma0", 0.999)  # 初始步长
+
         _, models, parameter_index, lower_bounds, upper_bounds = graph.extract_parameters_to_list()
-        es = cma.CMAEvolutionStrategy(x0, 0.999,
-                                      {'verb_disp': int(verbose), 'maxfevals': 1000, 'bounds': [lower_bounds, upper_bounds]})
+
+        # 组装 CMA 的配置字典
+
+        cma_options = {
+
+            'verb_disp': int(verbose),
+
+            'maxfevals': max_evals,
+
+            'bounds': [lower_bounds, upper_bounds]
+
+        }
+
+        if pop_size is not None:
+            cma_options['popsize'] = pop_size
+
+        # 将动态参数传入 CMA
+
+        es = cma.CMAEvolutionStrategy(x0, init_sigma, cma_options)
 
         if log_callback:
             logger.set_optimization_algorithm('CMA', pop_size=es.ask())
+
             print(f'es pop size: {es.ask()}')
+
             logger.start_logger_time()
 
         es.optimize(fitness_funct)
+
         res = es.result
+
         x = res.xbest
+
         graph.distribute_parameters_from_list(x, models, parameter_index)
 
         return graph, x, graph.func(x), logger
